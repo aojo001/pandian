@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Payments
@@ -67,7 +66,6 @@ private val simpleActions = listOf(
 private val managementActions = listOf(
     HomeAction("登记入库", "品类和数量", Icons.Rounded.Inventory2, AppPage.INTAKE, listOf(BrandBurgundyDark, BrandBurgundy)),
     HomeAction("结算", "填写价格", Icons.Rounded.Payments, AppPage.SETTLEMENT, listOf(Color(0xFF9C6813), BrandGold)),
-    HomeAction("收烟 / 卖烟", "直接开单", Icons.Rounded.EditNote, AppPage.TRADE, listOf(Color(0xFF7A2921), Color(0xFFAE4939))),
     HomeAction("烟价管理", "商品、条码和价格", Icons.Rounded.Sell, AppPage.PRICES, listOf(Color(0xFF775018), Color(0xFFA77C2A))),
     HomeAction("客户管理", "客户资料", Icons.Rounded.Groups, AppPage.CUSTOMERS, listOf(Color(0xFF65443B), Color(0xFF936B5B))),
     HomeAction("记一笔账", "收款和付款", Icons.Rounded.AccountBalanceWallet, AppPage.ACCOUNTING, listOf(Color(0xFF713127), Color(0xFF9D5042))),
