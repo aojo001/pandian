@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -65,32 +64,25 @@ import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-private val BuiltInProductCategories = setOf("卷烟", "细支烟", "雪茄", "其他", "未分类")
-
 @Composable
 fun ProductManagementScreen(
     activity: Activity,
     store: LedgerStore,
     products: MutableList<Product>,
+    productCategories: MutableList<String>,
     modifier: Modifier = Modifier
 ) {
     var search by remember { mutableStateOf("") }
     var categoryFilter by remember { mutableStateOf("全部") }
     var editing by remember { mutableStateOf<Product?>(null) }
-    var showCategoryManager by remember { mutableStateOf(false) }
-    var pendingDeleteCategory by remember { mutableStateOf<String?>(null) }
     var draggingId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     val tablet = LocalConfiguration.current.screenWidthDp >= 700
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
-    val categories = listOf("全部") + products.map { it.category.ifBlank { "未分类" } }.distinct()
-    val customCategories = products
-        .groupingBy { it.category.ifBlank { "未分类" } }
-        .eachCount()
-        .filterKeys { it !in BuiltInProductCategories }
-        .toList()
-        .sortedBy { it.first }
+    val categories = listOf("全部") + productCategories.filter { category ->
+        products.any { it.category.ifBlank { "未分类" } == category }
+    }
     val visible = products.filter {
         (it.name.contains(search.trim(), ignoreCase = true) || it.barcode.contains(search.trim(), ignoreCase = true)) &&
             (categoryFilter == "全部" || it.category.ifBlank { "未分类" } == categoryFilter)
@@ -128,11 +120,6 @@ fun ProductManagementScreen(
                         onClick = { categoryFilter = category },
                         label = { Text(category) }
                     )
-                }
-                item {
-                    OutlinedButton(onClick = { showCategoryManager = true }) {
-                        Text("管理自定义分类")
-                    }
                 }
             }
             Text("长按商品卡并拖动，可调整显示顺序", color = MaterialTheme.colorScheme.secondary, fontSize = 14.sp)
@@ -222,10 +209,11 @@ fun ProductManagementScreen(
             activity = activity,
             store = store,
             initial = product,
+            availableCategories = productCategories,
             isNew = products.none { it.id == product.id },
             onDismiss = { editing = null },
             onSave = { saved ->
-                val duplicate = products.any {
+                val duplicate = saved.barcode.isNotBlank() && products.any {
                     it.id != saved.id && it.barcode.trim().equals(saved.barcode.trim(), ignoreCase = true)
                 }
                 if (duplicate) {
@@ -234,6 +222,10 @@ fun ProductManagementScreen(
                 }
                 val index = products.indexOfFirst { it.id == saved.id }
                 if (index >= 0) products[index] = saved else products.add(0, saved)
+                if (saved.category !in productCategories) {
+                    productCategories.add(saved.category)
+                    store.saveCategories(productCategories)
+                }
                 store.saveProducts(products)
                 editing = null
                 Toast.makeText(activity, "商品资料已保存", Toast.LENGTH_SHORT).show()
@@ -241,73 +233,6 @@ fun ProductManagementScreen(
         )
     }
 
-    if (showCategoryManager) {
-        CategoryManagementDialog(
-            categories = customCategories,
-            onDismiss = { showCategoryManager = false },
-            onDelete = { pendingDeleteCategory = it }
-        )
-    }
-
-    pendingDeleteCategory?.let { category ->
-        val productCount = products.count { it.category == category }
-        AlertDialog(
-            onDismissRequest = { pendingDeleteCategory = null },
-            title = { Text("删除分类“$category”？", fontWeight = FontWeight.Bold) },
-            text = { Text("该分类下有 $productCount 款烟。删除后，这些烟会自动移动到“未分类”，商品资料不会丢失。") },
-            confirmButton = {
-                Button(onClick = {
-                    products.indices.forEach { index ->
-                        if (products[index].category == category) {
-                            products[index] = products[index].copy(category = "未分类")
-                        }
-                    }
-                    store.saveProducts(products)
-                    if (categoryFilter == category) categoryFilter = "全部"
-                    pendingDeleteCategory = null
-                    Toast.makeText(activity, "分类已删除，相关商品已移到未分类", Toast.LENGTH_SHORT).show()
-                }) { Text("确认删除") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDeleteCategory = null }) { Text("取消") } }
-        )
-    }
-}
-
-@Composable
-private fun CategoryManagementDialog(
-    categories: List<Pair<String, Int>>,
-    onDismiss: () -> Unit,
-    onDelete: (String) -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("管理自定义分类", fontSize = 22.sp, fontWeight = FontWeight.Bold) },
-        text = {
-            if (categories.isEmpty()) {
-                Text("目前没有自定义分类。内置分类无需管理。", color = MaterialTheme.colorScheme.secondary)
-            } else {
-                androidx.compose.foundation.lazy.LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(categories, key = { it.first }) { (name, count) ->
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                    Text("$count 款烟", color = MaterialTheme.colorScheme.secondary)
-                                }
-                                TextButton(onClick = { onDelete(name) }) {
-                                    Text("删除", color = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("完成") } }
-    )
 }
 
 @Composable
@@ -357,6 +282,7 @@ private fun ProductMasterDialog(
     activity: Activity,
     store: LedgerStore,
     initial: Product,
+    availableCategories: List<String>,
     isNew: Boolean,
     onDismiss: () -> Unit,
     onSave: (Product) -> Unit
@@ -400,7 +326,7 @@ private fun ProductMasterDialog(
                 item {
                     Text("商品分类", fontWeight = FontWeight.SemiBold)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        items(listOf("卷烟", "细支烟", "雪茄", "其他")) { item ->
+                        items(availableCategories.filter { it != "未分类" }) { item ->
                             FilterChip(selected = category == item, onClick = { category = item }, label = { Text(item) })
                         }
                     }
@@ -428,7 +354,7 @@ private fun ProductMasterDialog(
         },
         confirmButton = {
             Button(
-                enabled = name.isNotBlank() && barcode.isNotBlank() && category.isNotBlank() && unit.isNotBlank(),
+                enabled = name.isNotBlank() && category.isNotBlank() && unit.isNotBlank(),
                 onClick = {
                     val buyPrice = buy.toDoubleOrNull() ?: initial.retailPrice
                     onSave(

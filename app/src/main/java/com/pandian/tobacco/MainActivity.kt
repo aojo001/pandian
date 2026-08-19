@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
 private fun TobaccoLedgerApp(activity: Activity) {
     val store = remember { LedgerStore(activity) }
     val products = remember { mutableStateListOf<Product>().apply { addAll(store.loadProducts()) } }
+    val productCategories = remember { mutableStateListOf<String>().apply { addAll(store.loadCategories(products)) } }
     val orders = remember { mutableStateListOf<TradeOrder>().apply { addAll(store.loadOrders()) } }
     val intakes = remember { mutableStateListOf<IntakeRecord>().apply { addAll(store.loadIntakes()) } }
     val customerStore = remember { CustomerStore(activity) }
@@ -179,7 +180,8 @@ private fun TobaccoLedgerApp(activity: Activity) {
                 }
             )
             AppPage.TRADE -> TradeScreen(activity, store, products, orders, customers, Modifier.padding(padding))
-            AppPage.PRICES -> ProductManagementScreen(activity, store, products, Modifier.padding(padding))
+            AppPage.PRICES -> ProductManagementScreen(activity, store, products, productCategories, Modifier.padding(padding))
+            AppPage.CATEGORIES -> CategoryManagementScreen(activity, store, products, productCategories, Modifier.padding(padding))
             AppPage.HISTORY -> HistoryScreen(activity, orders, Modifier.padding(padding))
             AppPage.ACCOUNTING -> BookkeepingScreen(activity, customerStore, customers, Modifier.padding(padding))
             AppPage.CUSTOMERS -> CustomerManagementScreen(activity, customerStore, customers, Modifier.padding(padding))
@@ -197,7 +199,7 @@ private fun TobaccoLedgerApp(activity: Activity) {
 }
 
 enum class AppPage(val title: String) {
-    HOME("烟收宝"), INTAKE("登记入库"), SETTLEMENT("结算"), TRADE("收烟 / 卖烟登记"), ACCOUNTING("记一笔账"), PRICES("烟价管理"), HISTORY("交易记录"),
+    HOME("烟收宝"), INTAKE("登记入库"), SETTLEMENT("结算"), TRADE("收烟 / 卖烟登记"), ACCOUNTING("记一笔账"), PRICES("烟价管理"), CATEGORIES("分类管理"), HISTORY("交易记录"),
     CUSTOMERS("客户管理"), STATS("数据统计"), SETTINGS("设置")
 }
 

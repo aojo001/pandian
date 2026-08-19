@@ -12,6 +12,8 @@ enum class CustomerType(val title: String) {
     RETAIL("散户"), WHOLESALE("大户")
 }
 
+val DefaultProductCategories = listOf("卷烟", "细支烟", "雪茄", "其他", "未分类")
+
 data class Product(
     val id: String,
     val name: String,

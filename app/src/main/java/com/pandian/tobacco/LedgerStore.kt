@@ -49,6 +49,21 @@ class LedgerStore(context: Context) {
         preferences.edit().putString("products", array.toString()).apply()
     }
 
+    fun loadCategories(products: List<Product>): List<String> {
+        val saved = runCatching {
+            val array = JSONArray(preferences.getString("categoryOrder", "[]"))
+            List(array.length()) { array.getString(it) }
+        }.getOrDefault(emptyList())
+        return (saved + DefaultProductCategories + products.map { it.category.ifBlank { "未分类" } })
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+    }
+
+    fun saveCategories(categories: List<String>) {
+        preferences.edit().putString("categoryOrder", JSONArray(categories).toString()).apply()
+    }
+
     fun loadOrders(): List<TradeOrder> {
         val raw = preferences.getString("orders", null) ?: return emptyList()
         return runCatching {
