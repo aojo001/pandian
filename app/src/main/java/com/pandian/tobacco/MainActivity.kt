@@ -102,6 +102,34 @@ private fun TobaccoLedgerApp(activity: Activity) {
     var managementMode by remember { mutableStateOf(false) }
     var settlementPrintOrder by remember { mutableStateOf<TradeOrder?>(null) }
     var availableUpdate by remember { mutableStateOf<GitHubReleaseUpdate?>(null) }
+    val requestBluetoothPermission = ReceiptPrinter.rememberBluetoothPermissionRequest()
+
+    fun printSettlementWithDefault(order: TradeOrder) {
+        val settings = AppSettingsStore(activity).load()
+        if (settings.defaultPrinterAddress.isBlank()) {
+            settlementPrintOrder = order
+            return
+        }
+        requestBluetoothPermission { granted ->
+            if (!granted) {
+                Toast.makeText(activity, "未授权蓝牙权限，请选择打印方式", Toast.LENGTH_SHORT).show()
+                settlementPrintOrder = order
+                return@requestBluetoothPermission
+            }
+            ReceiptPrinter.printBluetooth(activity, settings.defaultPrinterAddress, order) { result ->
+                result.onSuccess {
+                    Toast.makeText(
+                        activity,
+                        "结算完成，已使用${settings.defaultPrinterName.ifBlank { "默认打印机" }}打印",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }.onFailure {
+                    Toast.makeText(activity, "默认打印机连接失败，请重新选择", Toast.LENGTH_SHORT).show()
+                    settlementPrintOrder = order
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         GitHubUpdateManager.checkForUpdate { result ->
@@ -147,7 +175,7 @@ private fun TobaccoLedgerApp(activity: Activity) {
                     orders.add(0, order)
                     store.deleteIntake(intake.id)
                     intakes.removeAll { it.id == intake.id }
-                    settlementPrintOrder = order
+                    printSettlementWithDefault(order)
                 }
             )
             AppPage.TRADE -> TradeScreen(activity, store, products, orders, customers, Modifier.padding(padding))
