@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,8 +100,9 @@ private fun TobaccoLedgerApp(activity: Activity) {
             addAll(customerStore.migrateLegacyPeople(AccountingStore(activity).loadPeople()))
         }
     }
-    var currentPage by remember { mutableStateOf(AppPage.HOME) }
-    var managementMode by remember { mutableStateOf(false) }
+    var currentPageName by rememberSaveable { mutableStateOf(AppPage.HOME.name) }
+    val currentPage = runCatching { AppPage.valueOf(currentPageName) }.getOrDefault(AppPage.HOME)
+    var managementMode by rememberSaveable { mutableStateOf(false) }
     var settlementPrintOrder by remember { mutableStateOf<TradeOrder?>(null) }
     var availableUpdate by remember { mutableStateOf<GitHubReleaseUpdate?>(null) }
     val requestBluetoothPermission = ReceiptPrinter.rememberBluetoothPermissionRequest()
@@ -139,14 +141,14 @@ private fun TobaccoLedgerApp(activity: Activity) {
     }
 
     BackHandler(enabled = currentPage != AppPage.HOME) {
-        currentPage = AppPage.HOME
+        currentPageName = AppPage.HOME.name
     }
 
     Scaffold(
         topBar = {
             if (currentPage != AppPage.HOME) {
                 TopAppBar(
-                    navigationIcon = { TextButton(onClick = { currentPage = AppPage.HOME }) { Text("‹", fontSize = 34.sp) } },
+                    navigationIcon = { TextButton(onClick = { currentPageName = AppPage.HOME.name }) { Text("‹", fontSize = 34.sp) } },
                     title = { Text(currentPage.title, fontWeight = FontWeight.Bold) },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background,
@@ -163,7 +165,7 @@ private fun TobaccoLedgerApp(activity: Activity) {
                 managementMode = managementMode,
                 onUnlockManagement = { managementMode = true },
                 onExitManagement = { managementMode = false },
-                onNavigate = { currentPage = it },
+                onNavigate = { currentPageName = it.name },
                 modifier = Modifier.padding(padding)
             )
             AppPage.INTAKE -> IntakeRegistrationScreen(activity, store, products, intakes, Modifier.padding(padding))

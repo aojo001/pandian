@@ -16,8 +16,8 @@ android {
         applicationId = "com.pandian.tobacco"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.0.8"
+        versionCode = 10
+        versionName = "1.0.9"
         buildConfigField("String", "UPDATE_GITHUB_OWNER", "\"$updateGithubOwner\"")
         buildConfigField("String", "UPDATE_GITHUB_REPO", "\"$updateGithubRepo\"")
         buildConfigField("String", "UPDATE_GITCODE_OWNER", "\"$updateGitCodeOwner\"")
