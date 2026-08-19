@@ -31,8 +31,10 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 private class UpdateDownloadCancelledException : Exception("已取消下载")
+private data class UpdateDownloadSource(val name: String, val url: String)
 
 class UpdateDownloadTask {
     @Volatile private var cancelled = false
@@ -59,7 +61,9 @@ data class GitHubReleaseUpdate(
     val notes: String,
     val assetApiUrl: String,
     val apkUrl: String,
-    val apkSize: Long
+    val apkSize: Long,
+    val expectedSha256: String,
+    val domesticUrl: String
 )
 
 object GitHubUpdateManager {
@@ -98,7 +102,11 @@ object GitHubUpdateManager {
                     notes = json.optString("body").replace("\\r\\n", "\n").replace("\\n", "\n"),
                     assetApiUrl = apk.getString("url"),
                     apkUrl = apk.getString("browser_download_url"),
-                    apkSize = apk.optLong("size")
+                    apkSize = apk.optLong("size"),
+                    expectedSha256 = apk.optString("digest").removePrefix("sha256:"),
+                    domesticUrl = if (BuildConfig.UPDATE_GITCODE_OWNER.isNotBlank() && BuildConfig.UPDATE_GITCODE_REPO.isNotBlank()) {
+                        "https://gitcode.com/${BuildConfig.UPDATE_GITCODE_OWNER}/${BuildConfig.UPDATE_GITCODE_REPO}/raw/apk-releases/app-debug.apk"
+                    } else ""
                 )
             }
             mainHandler.post { callback(result) }
@@ -123,31 +131,39 @@ object GitHubUpdateManager {
         val task = UpdateDownloadTask()
         Thread {
             var lastError: Throwable = IllegalStateException("更新下载失败")
-            for (attempt in 1..3) {
-                try {
-                    task.checkCancelled()
-                    postStatus(onStatus, if (attempt == 1) "正在连接 GitHub 更新服务…" else "正在进行第 $attempt 次下载…")
-                    val file = downloadOnce(activity, update, task, onProgress, onStatus)
-                    task.bind(null)
-                    mainHandler.post { callback(Result.success(file)) }
-                    return@Thread
-                } catch (cancelled: UpdateDownloadCancelledException) {
-                    task.bind(null)
-                    mainHandler.post { callback(Result.failure(cancelled)) }
-                    return@Thread
-                } catch (error: Throwable) {
-                    lastError = error
-                    task.bind(null)
-                    if (attempt < 3) {
-                        postStatus(onStatus, "连接失败，正在自动重试（${attempt + 1}/3）…")
-                        try {
-                            repeat(15) { task.checkCancelled(); Thread.sleep(100) }
-                        } catch (cancelled: UpdateDownloadCancelledException) {
-                            mainHandler.post { callback(Result.failure(cancelled)) }
-                            return@Thread
+            val sources = buildList {
+                if (update.domesticUrl.isNotBlank()) add(UpdateDownloadSource("GitCode 国内源", update.domesticUrl))
+                add(UpdateDownloadSource("GitHub 备用源", update.assetApiUrl.ifBlank { update.apkUrl }))
+            }
+            sources.forEachIndexed { sourceIndex, source ->
+                for (attempt in 1..2) {
+                    try {
+                        task.checkCancelled()
+                        mainHandler.post { onProgress(0) }
+                        postStatus(onStatus, "正在连接${source.name}${if (attempt > 1) "（重试）" else ""}…")
+                        val file = downloadOnce(activity, update, source, task, onProgress, onStatus)
+                        task.bind(null)
+                        mainHandler.post { callback(Result.success(file)) }
+                        return@Thread
+                    } catch (cancelled: UpdateDownloadCancelledException) {
+                        task.bind(null)
+                        mainHandler.post { callback(Result.failure(cancelled)) }
+                        return@Thread
+                    } catch (error: Throwable) {
+                        lastError = error
+                        task.bind(null)
+                        if (attempt < 2) {
+                            postStatus(onStatus, "${source.name}连接失败，正在重试…")
+                            try {
+                                repeat(10) { task.checkCancelled(); Thread.sleep(100) }
+                            } catch (cancelled: UpdateDownloadCancelledException) {
+                                mainHandler.post { callback(Result.failure(cancelled)) }
+                                return@Thread
+                            }
                         }
                     }
                 }
+                if (sourceIndex < sources.lastIndex) postStatus(onStatus, "国内源不可用，正在切换 GitHub 备用源…")
             }
             mainHandler.post { callback(Result.failure(lastError)) }
         }.start()
@@ -157,6 +173,7 @@ object GitHubUpdateManager {
     private fun downloadOnce(
         activity: Activity,
         update: GitHubReleaseUpdate,
+        source: UpdateDownloadSource,
         task: UpdateDownloadTask,
         onProgress: (Int) -> Unit,
         onStatus: (String) -> Unit
@@ -166,9 +183,9 @@ object GitHubUpdateManager {
         val temporary = File(directory, "smokebao-$safeTag.download")
         val target = File(directory, "smokebao-$safeTag.apk")
         if (temporary.exists()) temporary.delete()
-        val connection = openAssetConnection(update, task, onStatus)
+        val connection = openAssetConnection(source.url, task, onStatus)
         task.checkCancelled()
-        postStatus(onStatus, "已连接附件 CDN，正在下载…")
+        postStatus(onStatus, "已连接${source.name}，正在下载…")
         val total = connection.contentLengthLong.takeIf { it > 0 } ?: update.apkSize.takeIf { it > 0 } ?: -1L
         connection.inputStream.use { input ->
             temporary.outputStream().buffered().use { output ->
@@ -190,17 +207,22 @@ object GitHubUpdateManager {
         connection.disconnect()
         task.bind(null)
         if (temporary.length() < 100_000) error("下载的 APK 文件不完整")
+        if (update.expectedSha256.isNotBlank()) {
+            postStatus(onStatus, "正在校验 APK 安全性…")
+            val actual = sha256(temporary)
+            if (!actual.equals(update.expectedSha256, ignoreCase = true)) error("APK 安全校验失败，已拒绝安装")
+        }
         if (target.exists()) target.delete()
         check(temporary.renameTo(target)) { "无法保存更新文件" }
         return target
     }
 
     private fun openAssetConnection(
-        update: GitHubReleaseUpdate,
+        startUrl: String,
         task: UpdateDownloadTask,
         onStatus: (String) -> Unit
     ): HttpURLConnection {
-        var currentUrl = update.assetApiUrl.ifBlank { update.apkUrl }
+        var currentUrl = startUrl
         repeat(6) {
             task.checkCancelled()
             val connection = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
@@ -230,6 +252,19 @@ object GitHubUpdateManager {
             }
         }
         error("GitHub 附件跳转次数过多")
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun postStatus(callback: (String) -> Unit, value: String) {

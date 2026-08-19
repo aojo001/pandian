@@ -5,6 +5,8 @@ plugins {
 
 val updateGithubOwner = providers.gradleProperty("UPDATE_GITHUB_OWNER").orElse("").get()
 val updateGithubRepo = providers.gradleProperty("UPDATE_GITHUB_REPO").orElse("").get()
+val updateGitCodeOwner = providers.gradleProperty("UPDATE_GITCODE_OWNER").orElse("").get()
+val updateGitCodeRepo = providers.gradleProperty("UPDATE_GITCODE_REPO").orElse("").get()
 
 android {
     namespace = "com.pandian.tobacco"
@@ -14,10 +16,12 @@ android {
         applicationId = "com.pandian.tobacco"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "1.0.8"
         buildConfigField("String", "UPDATE_GITHUB_OWNER", "\"$updateGithubOwner\"")
         buildConfigField("String", "UPDATE_GITHUB_REPO", "\"$updateGithubRepo\"")
+        buildConfigField("String", "UPDATE_GITCODE_OWNER", "\"$updateGitCodeOwner\"")
+        buildConfigField("String", "UPDATE_GITCODE_REPO", "\"$updateGitCodeRepo\"")
     }
 
     buildFeatures { compose = true; buildConfig = true }

@@ -75,6 +75,7 @@ fun ProductManagementScreen(
     var search by remember { mutableStateOf("") }
     var categoryFilter by remember { mutableStateOf("全部") }
     var editing by remember { mutableStateOf<Product?>(null) }
+    var pendingDeleteProduct by remember { mutableStateOf<Product?>(null) }
     var draggingId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     val tablet = LocalConfiguration.current.screenWidthDp >= 700
@@ -212,6 +213,10 @@ fun ProductManagementScreen(
             availableCategories = productCategories,
             isNew = products.none { it.id == product.id },
             onDismiss = { editing = null },
+            onRequestDelete = {
+                editing = null
+                pendingDeleteProduct = product
+            },
             onSave = { saved ->
                 val duplicate = saved.barcode.isNotBlank() && products.any {
                     it.id != saved.id && it.barcode.trim().equals(saved.barcode.trim(), ignoreCase = true)
@@ -230,6 +235,23 @@ fun ProductManagementScreen(
                 editing = null
                 Toast.makeText(activity, "商品资料已保存", Toast.LENGTH_SHORT).show()
             }
+        )
+    }
+
+    pendingDeleteProduct?.let { product ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteProduct = null },
+            title = { Text("删除“${product.name}”？", fontWeight = FontWeight.Bold) },
+            text = { Text("删除后，该烟草不会再出现在商品库和扫码选择中。历史交易和已经登记的入库单不会删除。") },
+            confirmButton = {
+                Button(onClick = {
+                    products.removeAll { it.id == product.id }
+                    store.saveProducts(products)
+                    pendingDeleteProduct = null
+                    Toast.makeText(activity, "烟草已删除", Toast.LENGTH_SHORT).show()
+                }) { Text("确认删除") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDeleteProduct = null }) { Text("取消") } }
         )
     }
 
@@ -285,6 +307,7 @@ private fun ProductMasterDialog(
     availableCategories: List<String>,
     isNew: Boolean,
     onDismiss: () -> Unit,
+    onRequestDelete: () -> Unit,
     onSave: (Product) -> Unit
 ) {
     var name by remember(initial.id) { mutableStateOf(initial.name) }
@@ -368,7 +391,12 @@ private fun ProductMasterDialog(
                 }
             ) { Text("保存资料") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = {
+            Row {
+                if (!isNew) TextButton(onClick = onRequestDelete) { Text("删除烟草", color = MaterialTheme.colorScheme.primary) }
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        }
     )
 
     if (showPhotoSource) {
