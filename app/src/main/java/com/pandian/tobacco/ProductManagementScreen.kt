@@ -7,6 +7,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -40,11 +43,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
@@ -53,6 +60,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 @Composable
@@ -63,10 +72,17 @@ fun ProductManagementScreen(
     modifier: Modifier = Modifier
 ) {
     var search by remember { mutableStateOf("") }
+    var categoryFilter by remember { mutableStateOf("全部") }
     var editing by remember { mutableStateOf<Product?>(null) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
     val tablet = LocalConfiguration.current.screenWidthDp >= 700
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    val categories = listOf("全部") + products.map { it.category.ifBlank { "未分类" } }.distinct()
     val visible = products.filter {
-        it.name.contains(search.trim(), ignoreCase = true) || it.barcode.contains(search.trim(), ignoreCase = true)
+        (it.name.contains(search.trim(), ignoreCase = true) || it.barcode.contains(search.trim(), ignoreCase = true)) &&
+            (categoryFilter == "全部" || it.category.ifBlank { "未分类" } == categoryFilter)
     }
 
     Column(modifier.fillMaxSize()) {
@@ -77,7 +93,7 @@ fun ProductManagementScreen(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("商品资料管理", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text("条码、图片、单位和价格", color = MaterialTheme.colorScheme.secondary, fontSize = 16.sp)
+                    Text("分类、条码、图片、单位和价格", color = MaterialTheme.colorScheme.secondary, fontSize = 16.sp)
                 }
                 Button(onClick = {
                     editing = Product(
@@ -94,6 +110,16 @@ fun ProductManagementScreen(
                 textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
                 modifier = Modifier.fillMaxWidth()
             )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(categories) { category ->
+                    FilterChip(
+                        selected = categoryFilter == category,
+                        onClick = { categoryFilter = category },
+                        label = { Text(category) }
+                    )
+                }
+            }
+            Text("长按商品卡并拖动，可调整显示顺序", color = MaterialTheme.colorScheme.secondary, fontSize = 14.sp)
         }
 
         if (visible.isEmpty()) {
@@ -103,13 +129,73 @@ fun ProductManagementScreen(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(if (tablet) 250.dp else 174.dp),
+                state = gridState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(if (tablet) 24.dp else 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(visible, key = { it.id }) { product ->
-                    ManagedProductCard(product) { editing = product }
+                    val isDragging = draggingId == product.id
+                    ManagedProductCard(
+                        product = product,
+                        modifier = Modifier
+                            .zIndex(if (isDragging) 1f else 0f)
+                            .graphicsLayer {
+                                if (isDragging) {
+                                    translationX = dragOffset.x
+                                    translationY = dragOffset.y
+                                    scaleX = 1.03f
+                                    scaleY = 1.03f
+                                    shadowElevation = 16.dp.toPx()
+                                }
+                            }
+                            .pointerInput(product.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { draggingId = product.id; dragOffset = Offset.Zero },
+                                    onDragCancel = { draggingId = null; dragOffset = Offset.Zero },
+                                    onDragEnd = {
+                                        draggingId = null
+                                        dragOffset = Offset.Zero
+                                        store.saveProducts(products)
+                                        Toast.makeText(activity, "商品顺序已保存", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        dragOffset += amount
+                                        val layout = gridState.layoutInfo
+                                        val dragged = layout.visibleItemsInfo.firstOrNull { it.key == product.id }
+                                        if (dragged != null) {
+                                            val centerX = dragged.offset.x + dragged.size.width / 2f + dragOffset.x
+                                            val centerY = dragged.offset.y + dragged.size.height / 2f + dragOffset.y
+                                            val target = layout.visibleItemsInfo.firstOrNull { item ->
+                                                item.key != product.id &&
+                                                    centerX >= item.offset.x && centerX <= item.offset.x + item.size.width &&
+                                                    centerY >= item.offset.y && centerY <= item.offset.y + item.size.height
+                                            }
+                                            val targetId = target?.key as? String
+                                            if (target != null && targetId != null) {
+                                                val from = products.indexOfFirst { it.id == product.id }
+                                                val to = products.indexOfFirst { it.id == targetId }
+                                                if (from >= 0 && to >= 0 && from != to) {
+                                                    dragOffset -= Offset(
+                                                        (target.offset.x - dragged.offset.x).toFloat(),
+                                                        (target.offset.y - dragged.offset.y).toFloat()
+                                                    )
+                                                    products.add(to, products.removeAt(from))
+                                                }
+                                            }
+                                            val edge = 72.dp.toPx()
+                                            when {
+                                                centerY < layout.viewportStartOffset + edge -> scope.launch { gridState.scrollBy(-42f) }
+                                                centerY > layout.viewportEndOffset - edge -> scope.launch { gridState.scrollBy(42f) }
+                                            }
+                                        }
+                                    }
+                                )
+                            },
+                        onEdit = { editing = product }
+                    )
                 }
             }
         }
@@ -141,8 +227,9 @@ fun ProductManagementScreen(
 }
 
 @Composable
-private fun ManagedProductCard(product: Product, onEdit: () -> Unit) {
+private fun ManagedProductCard(product: Product, modifier: Modifier = Modifier, onEdit: () -> Unit) {
     Card(
+        modifier = modifier,
         onClick = onEdit,
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(2.dp)
@@ -157,7 +244,7 @@ private fun ManagedProductCard(product: Product, onEdit: () -> Unit) {
                 )
             }
             Text(product.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("单位：${product.unit}", fontSize = 16.sp, color = MaterialTheme.colorScheme.secondary)
+            Text("${product.category.ifBlank { "未分类" }} · 单位：${product.unit}", fontSize = 16.sp, color = MaterialTheme.colorScheme.secondary)
             Text(
                 if (product.barcode.isBlank()) "条码：未录入" else "条码：${product.barcode}",
                 fontSize = 14.sp,
@@ -192,6 +279,7 @@ private fun ProductMasterDialog(
 ) {
     var name by remember(initial.id) { mutableStateOf(initial.name) }
     var barcode by remember(initial.id) { mutableStateOf(initial.barcode) }
+    var category by remember(initial.id) { mutableStateOf(initial.category.ifBlank { "卷烟" }) }
     var unit by remember(initial.id) { mutableStateOf(initial.unit) }
     var reference by remember(initial.id) { mutableStateOf(money(initial.referencePrice)) }
     var receive by remember(initial.id) { mutableStateOf(money(initial.receivePrice)) }
@@ -226,6 +314,21 @@ private fun ProductMasterDialog(
                     )
                 }
                 item {
+                    Text("商品分类", fontWeight = FontWeight.SemiBold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        items(listOf("卷烟", "细支烟", "雪茄", "其他")) { item ->
+                            FilterChip(selected = category == item, onClick = { category = item }, label = { Text(item) })
+                        }
+                    }
+                    OutlinedTextField(
+                        value = category,
+                        onValueChange = { category = it.take(12) },
+                        label = { Text("分类（可自定义）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
                     Text("计量单位", fontWeight = FontWeight.SemiBold)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         items(listOf("条", "盒", "包")) { item ->
@@ -241,12 +344,12 @@ private fun ProductMasterDialog(
         },
         confirmButton = {
             Button(
-                enabled = name.isNotBlank() && barcode.isNotBlank() && unit.isNotBlank(),
+                enabled = name.isNotBlank() && barcode.isNotBlank() && category.isNotBlank() && unit.isNotBlank(),
                 onClick = {
                     val buyPrice = buy.toDoubleOrNull() ?: initial.retailPrice
                     onSave(
                         initial.copy(
-                            name = name.trim(), barcode = normalizeBarcode(barcode), unit = unit.trim(), imagePath = imagePath,
+                            name = name.trim(), barcode = normalizeBarcode(barcode), category = category.trim(), unit = unit.trim(), imagePath = imagePath,
                             referencePrice = reference.toDoubleOrNull() ?: initial.referencePrice,
                             receivePrice = receive.toDoubleOrNull() ?: initial.receivePrice,
                             retailPrice = buyPrice, wholesalePrice = buyPrice
