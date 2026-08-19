@@ -168,7 +168,7 @@ private fun TobaccoLedgerApp(activity: Activity) {
                 onNavigate = { currentPageName = it.name },
                 modifier = Modifier.padding(padding)
             )
-            AppPage.INTAKE -> IntakeRegistrationScreen(activity, store, products, intakes, Modifier.padding(padding))
+            AppPage.INTAKE -> IntakeRegistrationScreen(activity, store, products, productCategories, intakes, Modifier.padding(padding))
             AppPage.SETTLEMENT -> SettlementScreen(
                 intakes = intakes,
                 modifier = Modifier.padding(padding),

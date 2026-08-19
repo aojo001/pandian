@@ -68,6 +68,7 @@ fun IntakeRegistrationScreen(
     activity: Activity,
     store: LedgerStore,
     products: List<Product>,
+    productCategories: List<String>,
     intakes: MutableList<IntakeRecord>,
     modifier: Modifier = Modifier
 ) {
@@ -76,6 +77,7 @@ fun IntakeRegistrationScreen(
     var showCart by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
+    var categoryFilter by remember { mutableStateOf("全部") }
     var barcode by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     val scanFocus = remember { FocusRequester() }
@@ -109,8 +111,12 @@ fun IntakeRegistrationScreen(
         }
     }
 
+    val selectableCategories = listOf("全部") + productCategories.filter { category ->
+        products.any { it.category.ifBlank { "未分类" } == category }
+    }
     val visible = products.filter {
-        it.name.contains(search.trim(), true) || it.barcode.contains(search.trim(), true)
+        (it.name.contains(search.trim(), true) || it.barcode.contains(search.trim(), true)) &&
+            (categoryFilter == "全部" || it.category.ifBlank { "未分类" } == categoryFilter)
     }
     val selected = cart.values.toList()
 
@@ -143,6 +149,15 @@ fun IntakeRegistrationScreen(
                 )
                 OutlinedButton(onClick = { showImport = true }, modifier = Modifier.height(56.dp)) {
                     Text("一键导入", fontSize = 17.sp)
+                }
+            }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(selectableCategories) { category ->
+                    FilterChip(
+                        selected = categoryFilter == category,
+                        onClick = { categoryFilter = category },
+                        label = { Text(category, fontSize = 16.sp) }
+                    )
                 }
             }
         }
