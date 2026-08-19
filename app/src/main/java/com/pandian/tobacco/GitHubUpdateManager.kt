@@ -20,6 +20,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -274,9 +275,10 @@ fun GitHubUpdateDialog(activity: Activity, update: GitHubReleaseUpdate, onDismis
     var message by remember(update.tagName) { mutableStateOf("") }
     var failed by remember(update.tagName) { mutableStateOf(false) }
     var downloadTask by remember(update.tagName) { mutableStateOf<UpdateDownloadTask?>(null) }
+    val latestDownloadTask by rememberUpdatedState(downloadTask)
 
-    DisposableEffect(downloadTask) {
-        onDispose { if (downloading) downloadTask?.cancel() }
+    DisposableEffect(Unit) {
+        onDispose { latestDownloadTask?.cancel() }
     }
 
     fun beginUpdate() {
